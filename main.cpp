@@ -64,25 +64,28 @@ int main(int argc, const char** argv) {
     std::mt19937 g(rand());
     std::generate(x.begin(), x.end(), [&](){
         return point {
-            w * std::generate_canonical<float, 5>(g),
-            w * std::generate_canonical<float, 5>(g),
+            w - 2 * w * std::generate_canonical<float, 5>(g),
+            w - 2 * w * std::generate_canonical<float, 5>(g),
             0,
             0,
         };
     });
     std::vector<point> p = x;
+    std::vector<point> x0 = x;
     std::vector<point> f(n);
-    std::vector<point> e;
+    std::vector<float> e;
     e.reserve(K);
     std::cout.precision(4);
-    histogram v(100);
+    histogram v(50);
+    histogram rdf(100);
     auto const lj_0 = lj(1.0f / 0.8f);
     Graphics graphics(w, fps);
-    graphics.points.reserve(x.size());
     for (int k = 0; graphics.valid() && k < K; ++k) {
         std::fill(v.begin(), v.end(), 0);
+        std::fill(rdf.begin(), rdf.end(), 0);
         float E = 0;
-        float P = 0;
+        float S = 0;
+        point P { 0, 0, 0, 0 };
         graphics.points.resize(0);
         for (std::size_t i = 0; graphics.valid() && i < x.size(); ++i) {
             auto const x1 = x[i];
@@ -94,39 +97,40 @@ int main(int argc, const char** argv) {
                     continue;
                 }
                 auto const jj = D * (lj(a2 / r2) - lj_0);
-                P += jj;
                 auto const ff = -12 * jj / r2 * r;
                 F = F + ff;
                 f[j] = f[j] - ff;
+                hist(rdf, 0, 2 * w, std::sqrt(r2));
             }
             const auto delta = (x[i] - p[i]) % w;
+            P = P + m / t * delta;
             const auto speed = std::sqrt(mag2(delta)) / t;
-            hist(v, 0, w, speed);
+            hist(v, 0, w / 8, speed);
             E += speed * speed * m / 2;
+            S += mag2(x[i] - x0[i]);
             p[i] = x[i] + delta + t * t / m * F;
             p[i] = p[i] % w;
             graphics.points.push_back({
                 x[i][0], x[i][1],
-                F[0], F[1],
+                std::max(delta[0], w / 100.0f), std::max(delta[1], w / 100.0f),
             });
         }
         if (!graphics.valid()) {
             break;
         }
-        graphics.velocity = v;
-        graphics.step();
+        std::swap(x, p);
+        S /= x.size();
+        auto const draw = graphics.step(v, rdf, P, E, S);
         using namespace std::literals::chrono_literals;
         std::fill(f.begin(), f.end(), point { });
-        e.push_back(point { E, P, E + P, E - P });
-        std::swap(x, p);
-        if (k % 100 == 0) {
+        e.push_back(E);
+        if (draw) {
             std::cout
                 << std::setw(Align) << k
-                << ") K: " << std::setw(Align) << E
-                << " P: " << std::setw(Align) << P
-                << " E: " << std::setw(Align) << (E + P)
-                << " L: " << std::setw(Align) << (E - P)
-                << '\r'
+                << ") E: " << std::setw(Align) << E
+                << " P: " << std::setw(Align) << std::sqrt(mag2(P))
+                << " MSD: " << std::setw(Align) << S
+                << std::endl
             ;
         }
     }

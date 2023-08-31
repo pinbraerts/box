@@ -1,8 +1,12 @@
 #include "graphics.hpp"
 #include "point.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <iostream>
+#include <thread>
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 #include <csignal>
 #include <objidlbase.h>
@@ -46,20 +50,11 @@ static LRESULT CALLBACK procedure(
 );
 
 } // namespace
-
-bool Graphics::render() {
-    if (!create()) {
-        std::cout << "Create()" << std::endl;
-        return false;
-    }
-    target->BeginDraw();
-    HRESULT hr = S_OK;
-    auto const size = target->GetSize();
-    auto const w = size.height / 2;
-    target->SetTransform(D2D1::Matrix3x2F::Translation(D2D1::SizeF(w, w)));
-    target->Clear(D2D1::ColorF(D2D1::ColorF::White));
-
+    
+template<class T>
+inline bool Graphics::plot(T const& data, float x, float y, float w, float h, float scale, ID2D1Brush* brush) {
     ComPtr<ID2D1PathGeometry> path;
+    HRESULT hr;
     hr = factory->CreatePathGeometry(&path);
     if (FAILED(hr)) {
         std::cout << factory << "->CreatePathGeometry() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
@@ -72,47 +67,82 @@ bool Graphics::render() {
         std::cout << path << "->Open(sink) 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
         return false;
     }
-
-    for (auto const& point: points) {
-        sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
-        sink->BeginFigure(D2D1::Point2F(point[0], point[1]), D2D1_FIGURE_BEGIN_HOLLOW);
-        sink->AddLine(D2D1::Point2F(point[0] + point[2], point[1] + point[3]));
-        sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    sink->BeginFigure(D2D1::Point2F(x + 0.1f * w, y - (0.1f + 0.8f * data.front() * scale) * h), D2D1_FIGURE_BEGIN_FILLED);
+    for (size_t i = 0; i < data.size(); ++i) {
+        sink->AddLine(D2D1::Point2F(
+            x + w * (0.1f + i * 0.8f / data.size()),
+            y - h * (0.1f + data[i] * 0.8f * scale)
+        ));
     }
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
     hr = sink->Close();
     if (FAILED(hr)) {
         std::cout << sink << "->Close() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
         return false;
     }
-    target->DrawGeometry(path.Get(), brush, 5.0f);
+    target->DrawGeometry(path.Get(), brush, w / 500);
+    return true;
+}
 
-    ComPtr<ID2D1PathGeometry> path2;
-    hr = factory->CreatePathGeometry(&path2);
-    if (FAILED(hr)) {
-        std::cout << factory << "->CreatePathGeometry() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
+bool Graphics::render() {
+    if (!create()) {
+        std::cout << "Create()" << std::endl;
         return false;
+    }
+    target->BeginDraw();
+    HRESULT hr = S_OK;
+    target->SetTransform(
+        D2D1::Matrix3x2F::Scale(D2D1::SizeF(450 / w, 450 / w)) * D2D1::Matrix3x2F::Translation(D2D1::SizeF(500, 500)));
+    target->Clear(D2D1::ColorF(D2D1::ColorF::White));
+
+    {
+        ComPtr<ID2D1PathGeometry> path;
+        hr = factory->CreatePathGeometry(&path);
+        if (FAILED(hr)) {
+            std::cout << factory << "->CreatePathGeometry() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
+            return false;
+        }
+
+        ComPtr<ID2D1GeometrySink> sink;
+        hr = path->Open(&sink);
+        if (FAILED(hr)) {
+            std::cout << path << "->Open(sink) 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
+            return false;
+        }
+
+        for (auto const& point: points) {
+            sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
+            sink->BeginFigure(D2D1::Point2F(point[0], point[1]), D2D1_FIGURE_BEGIN_HOLLOW);
+            sink->AddLine(D2D1::Point2F(point[0] + point[2], point[1] + point[3]));
+            sink->EndFigure(D2D1_FIGURE_END_OPEN);
+        }
+        hr = sink->Close();
+        if (FAILED(hr)) {
+            std::cout << sink << "->Close() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
+            return false;
+        }
+        target->DrawGeometry(path.Get(), blue, w / 100.0f);
     }
 
-    ComPtr<ID2D1GeometrySink> sink2;
-    hr = path2->Open(&sink2);
-    if (FAILED(hr)) {
-        std::cout << path2 << "->Open(sink) 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
-        return false;
+    auto const max_vel = std::max_element(velocity.begin(), velocity.end());
+    if (max_vel != velocity.end()) {
+        auto const vel = max_vel - velocity.begin();
+        auto const num = *max_vel;
+        auto const b = 1.0f / vel / vel;
+        auto const B = M_E * b * num;
+        if (maxwell.empty()) {
+            maxwell.resize(velocity.size());
+        }
+        for (size_t i = 0; i < velocity.size(); ++i) {
+            auto const x2 = i * i;
+            maxwell[i] = B * x2 * std::exp(-b * x2);
+        }
+        plot(velocity, w, 0, w, w, 1.0f / num, blue);
+        plot(maxwell, w, 0, w, w, 1.0f / num, red);
     }
-    sink2->BeginFigure(D2D1::Point2F(w * 1.1, -(0.1 + velocity[0] * 4.0f / points.size()) * w), D2D1_FIGURE_BEGIN_FILLED);
-    for (size_t i = 0; i < velocity.size(); ++i) {
-        sink2->AddLine(D2D1::Point2F(
-            (1.1f + i * 0.8f / velocity.size()) * w,
-            -(0.1f + velocity[i] * 4.0f / points.size()) * w
-        ));
-    }
-    sink2->EndFigure(D2D1_FIGURE_END_OPEN);
-    hr = sink2->Close();
-    if (FAILED(hr)) {
-        std::cout << sink2 << "->Close() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
-        return false;
-    }
-    target->DrawGeometry(path2.Get(), brush);
+    plot(energy, w, w, w, w, 1.0f / *std::max_element(energy.begin(), energy.end()), blue);
+    plot(deviation, 2 * w, w, w, w, 1.0f / *std::max_element(deviation.begin(), deviation.end()), blue);
+    plot(rdf, 2 * w, 0, w, w, 1.0f / *std::max_element(rdf.begin(), rdf.end()), blue);
 
     hr = target->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -131,10 +161,11 @@ bool Graphics::valid() {
     return running && factory && window;
 }
 
-Graphics::Graphics(unsigned width, float fps)
+Graphics::Graphics(float width_, float fps)
     : frame_time(fps ? static_cast<unsigned>(1000 / std::abs(fps)) : 0)
     , wait(fps > 0)
     , last_frame(steady_clock::now())
+    , w(width_)
 {
     std::signal(SIGINT, handler);
     HRESULT hr = S_OK;
@@ -174,8 +205,8 @@ Graphics::Graphics(unsigned width, float fps)
     window = (void*)CreateWindow(
         "box", "box",
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        width * 3, width * 2,
+        0, 0,
+        1900, 1000,
         nullptr, nullptr,
         HINST_CURRENT, this
     );
@@ -208,6 +239,10 @@ bool Graphics::create() {
         return false;
     }
 
+    hr = target->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Blue), &blue);
+    hr = target->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red), &red);
+    hr = target->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Green), &green);
+
     D2D1_GRADIENT_STOP gradient[2];
     gradient[0].position = 0;
     gradient[0].color = D2D1::ColorF(D2D1::ColorF::Red);
@@ -221,19 +256,6 @@ bool Graphics::create() {
     );
     if (FAILED(hr)) {
         std::cout << target << "->CreateGradientStops() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
-        return false;
-    }
-
-    hr = target->CreateLinearGradientBrush(
-        D2D1::LinearGradientBrushProperties(
-            D2D1::Point2F(0, 0),
-            D2D1::Point2F(0, 1000000)
-        ),
-        stops,
-        &brush
-    );
-    if (FAILED(hr)) {
-        std::cout << target << "->CreateSolidColorBrush(Black) 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
         return false;
     }
 
@@ -305,7 +327,18 @@ LRESULT CALLBACK procedure(
 
 } // namespace
 
-bool Graphics::step() {
+bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point impulse_, float energy_, float deviation_) {
+    rdf = rdf_,
+    velocity = velocity_;
+    impulse = impulse_;
+    while (energy.size() >= velocity.size()) {
+        energy.pop_front();
+    }
+    while (deviation.size() >= velocity.size()) {
+        deviation.pop_front();
+    }
+    energy.push_back(energy_);
+    deviation.push_back(deviation_);
     auto const fps = invalidate();
     // if (fps) std::cout << fps << std::endl;
     MSG msg;
@@ -316,12 +349,14 @@ bool Graphics::step() {
     if (wait) {
         std::this_thread::sleep_until(last_frame + frame_time);
     }
-    return true;
+    return fps > 0;
 }
 
 void Graphics::release() {
+    SafeRelease(blue);
+    SafeRelease(red);
+    SafeRelease(green);
     SafeRelease(stops);
-    SafeRelease(brush);
     SafeRelease(target);
 }
 
