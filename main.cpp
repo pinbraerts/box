@@ -13,7 +13,6 @@
 #include <thread>
 #include <vector>
 #include <fstream>
-#include <chrono>
 
 #include "graphics.hpp"
 
@@ -35,18 +34,34 @@ auto lj(float ar) {
 }
 
 int main(int argc, const char** argv) {
-    unsigned count = 0;
-    const unsigned n = argc > ++count ? std::atoi(argv[count]) : 100;
-    const float    A = argc > ++count ? std::atof(argv[count]) : 2.0f;
-    const float    D = argc > ++count ? std::atof(argv[count]) : 1.0f;
-    const float    w = argc > ++count ? std::atof(argv[count]) : 500.0f;
-    const float    t = argc > ++count ? std::atof(argv[count]) : 1.0f;
-    const float    m = argc > ++count ? std::atof(argv[count]) : 1.0f;
-    const int frames = argc > ++count ? std::atoi(argv[count]) : 10000;
-    const float a2 = A * A;
+    float r = 2;
+    float fps = 30;
+    float n = 100;
+    float D = 1;
+    float m = 1;
+    float t = 1;
+    float K = 10000;
+    float w = 500;
+    for (size_t i = 1; i < argc; ++i) {
+        auto const get_var = [&] () -> float& {
+            switch (argv[i][0]) {
+            case 'r': return r;
+            case 'f': return fps;
+            case 'd': return D;
+            case 'm': return m;
+            case 't': return t;
+            case 'k': return K;
+            case 'w': return w;
+            case 'n': return n;
+            default:  return n;
+            };
+        };
+        get_var() = std::atof(argv[i][1] ? argv[i] + 1 : argv[++i]);
+    }
+    const float a2 = r * r;
     std::vector<point> x(n);
-    std::random_device r;
-    std::mt19937 g(r());
+    std::random_device rand;
+    std::mt19937 g(rand());
     std::generate(x.begin(), x.end(), [&](){
         return point {
             w * std::generate_canonical<float, 5>(g),
@@ -58,13 +73,13 @@ int main(int argc, const char** argv) {
     std::vector<point> p = x;
     std::vector<point> f(n);
     std::vector<point> e;
-    e.reserve(frames);
+    e.reserve(K);
     std::cout.precision(4);
     histogram v(100);
     auto const lj_0 = lj(1.0f / 0.8f);
-    Graphics graphics(w);
+    Graphics graphics(w, fps);
     graphics.points.reserve(x.size());
-    for (int k = 0; graphics.valid() && k < frames; ++k) {
+    for (int k = 0; graphics.valid() && k < K; ++k) {
         std::fill(v.begin(), v.end(), 0);
         float E = 0;
         float P = 0;
@@ -114,7 +129,6 @@ int main(int argc, const char** argv) {
                 << '\r'
             ;
         }
-        std::this_thread::sleep_for(16ms);
     }
     if (graphics.valid()) {
         write(std::ofstream("velocity.bin", std::ios::binary), v);
