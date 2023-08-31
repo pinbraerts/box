@@ -1,32 +1,35 @@
-SOURCE = main.cpp
-OBJECT = main.obj
+OBJECT = graphics.obj point.obj main.obj 
 BINARY = main.exe
-RESULT = hist.bin
+RESULT = velocity.bin energy.bin
 PYTHON = python
-LDFLAGS = /nologo /out:
-CFLAGS =  /nologo /EHsc /Fo:
 CC = cl.exe
-LL = link.exe
+CFLAGS = /nologo /c /O2 /Ot /Ox /EHsc /Fo:
+LD = link.exe
+LDFLAGS = /nologo d2d1.lib user32.lib ole32.lib /OUT:
 
 build: ${BINARY}
 
-${RESULT}: ${BINARY}
-	${BINARY}
+main.obj: main.cpp
+	${CC} $< ${CFLAGS}$@
 
-${OBJECT}: ${SOURCE}
-	${CC} ${SOURCE} ${CFLAGS}${OBJECT}
+graphics.obj: graphics.cpp
+	${CC} $< ${CFLAGS}$@
+
+point.obj: point.cpp
+	${CC} $< ${CFLAGS}$@
 
 ${BINARY}: ${OBJECT}
-	${LL} ${OBJECT} ${LDFLAGS}${BINARY}
+	${LD} ${OBJECT} ${LDFLAGS}${BINARY}
 
-link: ${OBJECT}
-run: ${RESULT}
+run: ${BINARY}
+	${BINARY}
 
 clean:
-	del ${BINARY}
-	del ${OBJECT}
+	rm ${BINARY} || true
+	rm ${RESULT} || true
+	rm ${OBJECT} || true
 
-plot: ${RESULT} plot.py
+plot: run plot.py
 	${PYTHON} plot.py
 
 .PHONY: link build run plot ${RESULT}
