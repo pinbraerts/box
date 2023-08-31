@@ -1,12 +1,12 @@
 #pragma once
 
 #include "point.hpp"
-#include <d2d1.h>
+#include <chrono>
 
 struct ID2D1Factory;
 struct ID2D1HwndRenderTarget;
 struct ID2D1LinearGradientBrush;
-struct ID2D1GradietnStopCollection;
+struct ID2D1GradientStopCollection;
 struct ID2D1StrokeStyle;
 
 class Graphics {
@@ -18,6 +18,11 @@ private:
     ID2D1LinearGradientBrush* brush = nullptr;
     ID2D1GradientStopCollection* stops = nullptr;
 
+    std::chrono::steady_clock::time_point last_frame;
+    std::chrono::milliseconds frame_time;
+    std::chrono::milliseconds sleep_time;
+    bool wait;
+
 public:
     bool create();
     void release();
@@ -26,10 +31,11 @@ public:
 
     bool valid();
     bool step();
+    float invalidate();
 
     std::vector<point> points;
     histogram velocity;
 
-    Graphics(unsigned width);
+    Graphics(unsigned width, float fps);
     ~Graphics();
 };

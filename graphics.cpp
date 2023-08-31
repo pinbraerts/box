@@ -16,7 +16,10 @@
 #include <wrl/client.h>
 #include <comdef.h>
 
+namespace {
+
 using namespace Microsoft::WRL;
+using namespace std::chrono;
 
 #ifndef HINST_CURRENT
 static IMAGE_DOS_HEADER _instance;
@@ -41,6 +44,8 @@ static LRESULT CALLBACK procedure(
     WPARAM wparam,
     LPARAM lparam
 );
+
+} // namespace
 
 bool Graphics::render() {
     if (!create()) {
@@ -114,6 +119,7 @@ bool Graphics::render() {
         hr = S_OK;
         release();
     }
+    last_frame = steady_clock::now();
     return SUCCEEDED(hr);
 }
 
@@ -125,7 +131,11 @@ bool Graphics::valid() {
     return running && factory && window;
 }
 
-Graphics::Graphics(unsigned width) {
+Graphics::Graphics(unsigned width, float fps)
+    : frame_time(fps ? static_cast<unsigned>(1000 / std::abs(fps)) : 0)
+    , wait(fps > 0)
+    , last_frame(steady_clock::now())
+{
     std::signal(SIGINT, handler);
     HRESULT hr = S_OK;
     hr = CoInitialize(nullptr);
@@ -230,6 +240,18 @@ bool Graphics::create() {
     return true;
 }
 
+float Graphics::invalidate() {
+    auto const now = steady_clock::now();
+    auto const diff = now - last_frame;
+    if (diff > frame_time) {
+        InvalidateRect(reinterpret_cast<HWND>(window), nullptr, false);
+        return 1.0f / duration_cast<duration<float>>(diff).count();
+    }
+    return 0;
+}
+
+namespace {
+
 LRESULT CALLBACK procedure(
     HWND window,
     UINT message,
@@ -263,7 +285,7 @@ LRESULT CALLBACK procedure(
         break;
     case WM_PAINT:
         graphics->render();
-        // ValidateRect(window, nullptr);
+        ValidateRect(window, nullptr);
         break;
     case WM_KEYUP:
         switch (wparam) {
@@ -281,14 +303,19 @@ LRESULT CALLBACK procedure(
     return 0;
 }
 
+} // namespace
+
 bool Graphics::step() {
+    auto const fps = invalidate();
+    // if (fps) std::cout << fps << std::endl;
     MSG msg;
-    if (!GetMessage(&msg, nullptr, 0, 0)) {
-        PostQuitMessage(0);
-        return false;
+    while (PeekMessage(&msg, reinterpret_cast<HWND>(window), 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
     }
-    TranslateMessage(&msg);
-    DispatchMessage(&msg);
+    if (wait) {
+        std::this_thread::sleep_until(last_frame + frame_time);
+    }
     return true;
 }
 
