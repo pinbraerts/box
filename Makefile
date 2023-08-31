@@ -9,13 +9,13 @@ LDFLAGS = /nologo d2d1.lib user32.lib ole32.lib /OUT:
 
 build: ${BINARY}
 
-main.obj: main.cpp
+main.obj: main.cpp graphics.hpp
 	${CC} $< ${CFLAGS}$@
 
-graphics.obj: graphics.cpp
+graphics.obj: graphics.cpp graphics.hpp point.hpp
 	${CC} $< ${CFLAGS}$@
 
-point.obj: point.cpp
+point.obj: point.cpp point.hpp
 	${CC} $< ${CFLAGS}$@
 
 ${BINARY}: ${OBJECT}
