@@ -120,6 +120,9 @@ int main(int argc, const char** argv) {
         }
         std::swap(x, p);
         S /= x.size();
+        for (size_t i = 1; i < rdf.size(); ++i) {
+            rdf[i] /= i * i;
+        }
         auto const draw = graphics.step(v, rdf, P, E, S);
         using namespace std::literals::chrono_literals;
         std::fill(f.begin(), f.end(), point { });
