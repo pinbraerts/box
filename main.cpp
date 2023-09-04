@@ -42,6 +42,7 @@ int main(int argc, const char** argv) {
     float t = 1;
     float K = 10000;
     float w = 500;
+    float clear = 0;
     for (size_t i = 1; i < argc; ++i) {
         auto const get_var = [&] () -> float& {
             switch (argv[i][0]) {
@@ -53,6 +54,7 @@ int main(int argc, const char** argv) {
             case 'k': return K;
             case 'w': return w;
             case 'n': return n;
+            case 'c': return clear;
             default:  return n;
             };
         };
@@ -72,19 +74,21 @@ int main(int argc, const char** argv) {
     });
     std::vector<point> p = x;
     std::vector<point> x0 = x;
+    std::vector<point> xf = x;
     std::vector<point> f(n);
     std::vector<float> e;
     e.reserve(K);
     std::cout.precision(4);
-    histogram v(50);
-    histogram rdf(100);
+    histogram v(clear ? clear : 100);
+    histogram rdf(clear ? clear : 100);
     auto const lj_0 = lj(1.0f / 0.8f);
-    Graphics graphics(w, fps);
+    Graphics graphics(w, fps, clear);
     for (int k = 0; graphics.valid() && k < K; ++k) {
         std::fill(v.begin(), v.end(), 0);
         std::fill(rdf.begin(), rdf.end(), 0);
         float E = 0;
-        float S = 0;
+        float MSD = 0;
+        float LJ = 0;
         point P { 0, 0, 0, 0 };
         graphics.points.resize(0);
         for (std::size_t i = 0; graphics.valid() && i < x.size(); ++i) {
@@ -97,17 +101,19 @@ int main(int argc, const char** argv) {
                     continue;
                 }
                 auto const jj = D * (lj(a2 / r2) - lj_0);
+                LJ += jj;
                 auto const ff = -12 * jj / r2 * r;
                 F = F + ff;
                 f[j] = f[j] - ff;
                 hist(rdf, 0, 2 * w, std::sqrt(r2));
             }
             const auto delta = (x[i] - p[i]) % w;
+            xf[i] = xf[i] + delta;
             P = P + m / t * delta;
             const auto speed = std::sqrt(mag2(delta)) / t;
             hist(v, 0, w / 8, speed);
             E += speed * speed * m / 2;
-            S += mag2(x[i] - x0[i]);
+            MSD += mag2(xf[i] - x0[i]);
             p[i] = x[i] + delta + t * t / m * F;
             p[i] = p[i] % w;
             graphics.points.push_back({
@@ -119,11 +125,11 @@ int main(int argc, const char** argv) {
             break;
         }
         std::swap(x, p);
-        S /= x.size();
+        MSD /= x.size();
         for (size_t i = 1; i < rdf.size(); ++i) {
             rdf[i] /= i;
         }
-        auto const draw = graphics.step(v, rdf, P, E, S);
+        auto const draw = graphics.step(v, rdf, P, E, LJ, std::sqrt(MSD));
         using namespace std::literals::chrono_literals;
         std::fill(f.begin(), f.end(), point { });
         e.push_back(E);
@@ -131,8 +137,10 @@ int main(int argc, const char** argv) {
             std::cout
                 << std::setw(Align) << k
                 << ") E: " << std::setw(Align) << E
+                << " POTENTIAL: " << std::setw(Align) << LJ
+                << " ENERGY: " << std::setw(Align) << (LJ + E)
                 << " P: " << std::setw(Align) << std::sqrt(mag2(P))
-                << " MSD: " << std::setw(Align) << S
+                << " MSD: " << std::setw(Align) << MSD
                 << std::endl
             ;
         }

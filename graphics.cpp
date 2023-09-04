@@ -5,18 +5,14 @@
 #include <atomic>
 #include <iostream>
 #include <thread>
+#include <csignal>
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-#include <csignal>
-#include <objidlbase.h>
+#define NOMINMAX
 #include <windows.h>
 #include <d2d1.h>
 #include <d2d1helper.h>
-#include <winerror.h>
-#include <winnls.h>
-#include <winnt.h>
-#include <winuser.h>
 #include <wrl/client.h>
 #include <comdef.h>
 
@@ -92,7 +88,7 @@ bool Graphics::render() {
     target->BeginDraw();
     HRESULT hr = S_OK;
     target->SetTransform(
-        D2D1::Matrix3x2F::Scale(D2D1::SizeF(450 / w, 450 / w)) * D2D1::Matrix3x2F::Translation(D2D1::SizeF(500, 500)));
+        D2D1::Matrix3x2F::Scale(D2D1::SizeF(500 / w, 500 / w)) * D2D1::Matrix3x2F::Translation(D2D1::SizeF(500, 500)));
     target->Clear(D2D1::ColorF(D2D1::ColorF::White));
 
     {
@@ -140,8 +136,10 @@ bool Graphics::render() {
         plot(velocity, w, 0, w, w, 1.0f / num, blue);
         plot(maxwell, w, 0, w, w, 1.0f / num, red);
     }
-    plot(energy, w, w, w, w, 1.0f / *std::max_element(energy.begin(), energy.end()), blue);
-    plot(deviation, 2 * w, w, w, w, 1.0f / *std::max_element(deviation.begin(), deviation.end()), blue);
+    plot(kinetic, w, w / 2, w, w / 2, 1.0f / max_energy, red);
+    plot(potential, w, w / 2, w, w / 2, 1.0f / max_energy, green);
+    plot(energy, w, w / 2, w, w / 2, 1.0f / max_energy, blue);
+    plot(deviation, 2 * w, w, w, w, 1.0f / max_deviation, blue);
     plot(rdf, 2 * w, 0, w, w, 1.0f / *std::max_element(rdf.begin(), rdf.end()), blue);
 
     hr = target->EndDraw();
@@ -161,11 +159,12 @@ bool Graphics::valid() {
     return running && factory && window;
 }
 
-Graphics::Graphics(float width_, float fps)
+Graphics::Graphics(float width_, float fps, unsigned clear_)
     : frame_time(fps ? static_cast<unsigned>(1000 / std::abs(fps)) : 0)
     , wait(fps > 0)
     , last_frame(steady_clock::now())
     , w(width_)
+    , clear(clear_)
 {
     std::signal(SIGINT, handler);
     HRESULT hr = S_OK;
@@ -206,7 +205,7 @@ Graphics::Graphics(float width_, float fps)
         "box", "box",
         WS_OVERLAPPEDWINDOW,
         0, 0,
-        1900, 1000,
+        2000, 1000,
         nullptr, nullptr,
         HINST_CURRENT, this
     );
@@ -327,18 +326,50 @@ LRESULT CALLBACK procedure(
 
 } // namespace
 
-bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point impulse_, float energy_, float deviation_) {
-    rdf = rdf_,
-    velocity = velocity_;
+bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point impulse_, float energy_, float lj_, float deviation_) {
+    rdf = rdf_;
     impulse = impulse_;
-    while (energy.size() >= velocity.size()) {
+    if (velocity.empty()) {
+        velocity = velocity_;
+    }
+    else {
+        std::transform(velocity.begin(), velocity.end(), velocity_.begin(), velocity.begin(), std::plus<unsigned>{});
+    }
+    while (clear && velocities.size() >= clear) {
+        std::transform(
+            velocity.begin(), velocity.end(),
+            velocities.front().begin(),
+            velocity.begin(),
+            std::minus<unsigned>{}
+        );
+        velocities.pop_front();
+    }
+    while (clear && kinetic.size() >= clear) {
+        kinetic.pop_front();
+    }
+    while (clear && energy.size() >= clear) {
         energy.pop_front();
     }
-    while (deviation.size() >= velocity.size()) {
+    while (clear && potential.size() >= clear) {
+        potential.pop_front();
+    }
+    while (clear && deviation.size() >= clear) {
         deviation.pop_front();
     }
-    energy.push_back(energy_);
+    velocities.push_back(velocity_);
+    potential.push_back(lj_);
+    kinetic.push_back(energy_);
     deviation.push_back(deviation_);
+    energy.push_back(lj_ + energy_);
+    if (max_energy < -lj_) {
+        max_energy = -lj_;
+    }
+    if (max_energy < energy_) {
+        max_energy = energy_;
+    }
+    if (max_deviation < deviation_) {
+        max_deviation = deviation_;
+    }
     auto const fps = invalidate();
     // if (fps) std::cout << fps << std::endl;
     MSG msg;

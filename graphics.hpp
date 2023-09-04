@@ -27,8 +27,13 @@ private:
     std::chrono::milliseconds frame_time;
     std::chrono::milliseconds sleep_time;
     bool wait;
+    unsigned clear;
+    float max_energy = 0, max_deviation = 0;
+    std::deque<float> potential;
+    std::deque<float> kinetic;
     std::deque<float> energy;
     std::deque<float> deviation;
+    std::deque<histogram> velocities;
     histogram velocity;
     histogram maxwell;
     histogram rdf;
@@ -51,10 +56,11 @@ public:
         histogram const& rdf_,
         point impulse_,
         float energy_,
+        float lj_,
         float deviation_
     );
     float invalidate();
 
-    Graphics(float width, float fps);
+    Graphics(float width, float fps, unsigned clear);
     ~Graphics();
 };
