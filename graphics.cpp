@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <deque>
 #include <iostream>
 #include <thread>
 #include <csignal>
+#include <vector>
 #define _USE_MATH_DEFINES
 #include <math.h>
 
@@ -64,13 +66,21 @@ inline bool Graphics::plot(T const& data, float x, float y, float w, float h, fl
         return false;
     }
     sink->BeginFigure(D2D1::Point2F(x + 0.1f * w, y - (0.1f + 0.8f * data.front() * scale) * h), D2D1_FIGURE_BEGIN_FILLED);
-    for (size_t i = 0; i < data.size(); ++i) {
+    for (size_t i = 1; i < data.size(); ++i) {
         sink->AddLine(D2D1::Point2F(
-            x + w * (0.1f + i * 0.8f / data.size()),
+            x + w * (0.1f + i * 0.8f / (data.size() - 1)),
             y - h * (0.1f + data[i] * 0.8f * scale)
         ));
     }
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (brush == blue) {
+        sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
+        sink->BeginFigure(D2D1::Point2F(x, y), D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddLine(D2D1::Point2F(x + w, y));
+        sink->AddLine(D2D1::Point2F(x + w, y - h));
+        sink->AddLine(D2D1::Point2F(x, y - h));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    }
     hr = sink->Close();
     if (FAILED(hr)) {
         std::cout << sink << "->Close() 0x" << std::hex << hr << _com_error(hr).ErrorMessage() << std::endl;
@@ -139,8 +149,13 @@ bool Graphics::render() {
     plot(kinetic, w, w / 2, w, w / 2, 1.0f / max_energy, red);
     plot(potential, w, w / 2, w, w / 2, 1.0f / max_energy, green);
     plot(energy, w, w / 2, w, w / 2, 1.0f / max_energy, blue);
-    plot(deviation, 2 * w, w, w, w, 1.0f / max_deviation, blue);
     plot(rdf, 2 * w, 0, w, w, 1.0f / *std::max_element(rdf.begin(), rdf.end()), blue);
+    {
+        auto const max_MSD = *std::max_element(MSD.begin(), MSD.end());
+        const std::array<float, 2> line { a, a + b * MSD.size() };
+        plot(MSD, 2 * w, w, w, w, 1.0f / max_MSD, blue);
+        plot(line, 2 * w, w, w, w, 1.0f / max_MSD, red);
+    }
 
     hr = target->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -159,12 +174,14 @@ bool Graphics::valid() {
     return running && factory && window;
 }
 
-Graphics::Graphics(float width_, float fps, unsigned clear_)
-    : frame_time(fps ? static_cast<unsigned>(1000 / std::abs(fps)) : 0)
-    , wait(fps > 0)
+Graphics::Graphics(float width_, float fps_, float t_, unsigned clear_, std::deque<float> const& MSD_)
+    : frame_time(fps_ ? static_cast<unsigned>(1000 / std::abs(fps_)) : 0)
+    , wait(fps_ > 0)
     , last_frame(steady_clock::now())
     , w(width_)
     , clear(clear_)
+    , t(t_)
+    , MSD(MSD_)
 {
     std::signal(SIGINT, handler);
     HRESULT hr = S_OK;
@@ -326,9 +343,10 @@ LRESULT CALLBACK procedure(
 
 } // namespace
 
-bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point impulse_, float energy_, float lj_, float deviation_) {
+float Graphics::step(histogram const& velocity_, histogram const& rdf_, float energy_, float lj_, float a_, float b_) {
     rdf = rdf_;
-    impulse = impulse_;
+    a = a_;
+    b = b_;
     if (velocity.empty()) {
         velocity = velocity_;
     }
@@ -353,13 +371,9 @@ bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point imp
     while (clear && potential.size() >= clear) {
         potential.pop_front();
     }
-    while (clear && deviation.size() >= clear) {
-        deviation.pop_front();
-    }
     velocities.push_back(velocity_);
     potential.push_back(lj_);
     kinetic.push_back(energy_);
-    deviation.push_back(deviation_);
     energy.push_back(lj_ + energy_);
     if (max_energy < -lj_) {
         max_energy = -lj_;
@@ -367,9 +381,7 @@ bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point imp
     if (max_energy < energy_) {
         max_energy = energy_;
     }
-    if (max_deviation < deviation_) {
-        max_deviation = deviation_;
-    }
+    steps += 1;
     auto const fps = invalidate();
     // if (fps) std::cout << fps << std::endl;
     MSG msg;
@@ -380,7 +392,7 @@ bool Graphics::step(histogram const& velocity_, histogram const& rdf_, point imp
     if (wait) {
         std::this_thread::sleep_until(last_frame + frame_time);
     }
-    return fps > 0;
+    return fps;
 }
 
 void Graphics::release() {

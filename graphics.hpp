@@ -28,17 +28,21 @@ private:
     std::chrono::milliseconds sleep_time;
     bool wait;
     unsigned clear;
-    float max_energy = 0, max_deviation = 0;
+    float max_energy = 0;
     std::deque<float> potential;
     std::deque<float> kinetic;
     std::deque<float> energy;
-    std::deque<float> deviation;
+    std::deque<float> const& MSD;
     std::deque<histogram> velocities;
     histogram velocity;
     histogram maxwell;
     histogram rdf;
     point impulse;
     float w;
+    float t;
+    float a;
+    float b;
+    unsigned steps = 0;
 
     template<class T>
     inline bool plot(T const& data, float x, float y, float w, float h, float scale, ID2D1Brush* brush);
@@ -51,16 +55,16 @@ public:
     bool render();
 
     bool valid();
-    bool step(
+    float step(
         histogram const& velocity_, 
         histogram const& rdf_,
-        point impulse_,
         float energy_,
         float lj_,
-        float deviation_
+        float a_,
+        float b_
     );
     float invalidate();
 
-    Graphics(float width, float fps, unsigned clear);
+    Graphics(float width_, float fps_, float t_, unsigned clear_, std::deque<float> const& MSD_);
     ~Graphics();
 };
