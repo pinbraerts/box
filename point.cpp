@@ -1,11 +1,11 @@
 #include "point.hpp"
 
 float box(float p, float w) {
-    if (p < -w / 2) {
-        return p - std::floor(p / w) * w;
+    if (p < -w) {
+        return p - std::floor(p / 2 / w) * 2 * w;
     }
-    else if (p >= w / 2) {
-        return p - std::ceil(p / w) * w;
+    else if (p >= w) {
+        return p - std::ceil(p / 2 / w) * 2 * w;
     }
     else {
         return p;
@@ -14,10 +14,10 @@ float box(float p, float w) {
 
 point operator%(point x, float w) {
     return {
-        box(x[0], w * 2),
-        box(x[1], w * 2),
-        box(x[2], w * 2),
-        box(x[3], w * 2),
+        box(x[0], w),
+        box(x[1], w),
+        box(x[2], w),
+        box(x[3], w),
     };
 }
 

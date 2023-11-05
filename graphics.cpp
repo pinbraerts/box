@@ -149,6 +149,12 @@ bool Graphics::render() {
     plot(kinetic, w, w / 2, w, w / 2, 1.0f / max_energy, red);
     plot(potential, w, w / 2, w, w / 2, 1.0f / max_energy, green);
     plot(energy, w, w / 2, w, w / 2, 1.0f / max_energy, blue);
+    auto eee = energy;
+    auto const eeee = std::minmax_element(energy.begin(), energy.end());
+    for (auto& e: eee) {
+        e -= *eeee.first;
+    }
+    // plot(eee, w, w, w, w, 1.0f / (*eeee.second - *eeee.first), blue);
     plot(rdf, 2 * w, 0, w, w, 1.0f / *std::max_element(rdf.begin(), rdf.end()), blue);
     {
         auto const max_MSD = *std::max_element(MSD.begin(), MSD.end());
